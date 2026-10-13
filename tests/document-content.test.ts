@@ -85,4 +85,9 @@ describe("document export helpers", () => {
     expect(md).toContain("- Item 1");
     expect(md).toContain("- Item 2");
   });
+
+  it("handles empty document gracefully in plain text and markdown", () => {
+    expect(documentToPlainText({})).toBe("");
+    expect(documentToMarkdown({})).toBe("");
+  });
 });

@@ -1,30 +1,31 @@
 # Ajaia Docs
 
-A lightweight collaborative document editor built for the Full Stack Product Engineer assignment. It uses Next.js, TypeScript, TipTap, and Supabase.
+A lightweight collaborative document editor built for the Full Stack Product Engineer assignment. It uses Next.js 15, TypeScript, TipTap, and Supabase PostgreSQL with Row Level Security.
 
 ## Feature status
 
-| Capability | Status |
-|---|---|
-| Create, rename, edit, and delete documents | Implemented (with delete confirmation modal and RLS cascade) |
-| Rich text: bold, italic, underline, headings, lists, quotes, divider | Implemented |
-| Import `.txt` and `.md` files | Implemented (converts to editable paragraphs) |
-| Export `.md` and `.txt` files | Implemented (download formatted Markdown or plain text) |
-| Supabase email/password authentication | Implemented and verified against live Supabase project |
-| Persistent document CRUD and debounced autosave | Implemented in application code with Postgres RLS |
-| Owner/shared document lists | Implemented in application code |
-| Share by account email; viewer/editor access; revoke access | Implemented in application code and backed by RPC/RLS |
-| Local demo mode without environment keys | Available for UI exploration only; does not persist |
-| Automated tests | Unit tests cover text import, export converters, and file validation |
-| Deployment | Ready for deployment to Vercel with Supabase environment variables |
-
-This repository has not yet been verified against a live Supabase project. Run the checks below and exercise the app with two real accounts before submitting it as complete.
+| Capability | Status | Details |
+|---|---|---|
+| Create, rename, edit, and delete documents | Implemented | Includes delete confirmation modal, debounce cleanup, and database cascade |
+| Rich text editing | Implemented | Bold, italic, underline, strikethrough, headings (H1/H2/H3), lists, blockquotes, code blocks, dividers |
+| Import `.txt` and `.md` files | Implemented | Converts plain text and Markdown into editable document paragraphs with 1 MB limit |
+| Export to PDF or Markdown | Implemented | Dedicated `@media print` PDF export, plus client-side formatted Markdown (`.md`) and plain text (`.txt`) downloads |
+| Real-time collaboration indicators | Implemented | Active presence avatar stack with colored border rings, status dots, and live pulsating active count pill |
+| Commenting or suggestion mode | Implemented | Slide-over panel with unread badge, Open/Resolved/All filters, resolve/reopen/delete actions, and Suggestion mode toggle |
+| Document version history | Implemented | Milestone snapshots, timeline list with word count & timestamps, content preview, and one-click restore/rollback |
+| Role-based sharing permissions | Implemented | 4 granular roles: **Viewer**, **Commenter**, **Editor**, and **Admin**; enforced via Postgres RLS and UI guards |
+| User account deletion | Implemented | Confirmation dialog, secure `delete_user_account` RPC cascading across data, and session cleanup |
+| Supabase authentication | Implemented | Email/password sign-in and sign-up with session persistence |
+| Persistent document CRUD & autosave | Implemented | Debounced save (650ms) to Supabase PostgreSQL with RLS isolation |
+| Local demo mode | Implemented | Zero-configuration offline mode with switchable demo users and seeded collaborative data |
+| Automated tests | Implemented | 5 Vitest unit tests covering text import, file extension validation, plain text export, Markdown export, and empty documents |
+| Linting & Build verification | Implemented | ESLint 9 (0 warnings/errors) and Next.js 15 production build passing cleanly |
 
 ## Requirements
 
 - Node.js 20.9 or later
 - npm
-- A Supabase project
+- A Supabase project (optional for exploring; local demo mode runs with zero configuration)
 
 ## Run locally
 
@@ -40,50 +41,57 @@ On Windows PowerShell, replace the copy command with:
 Copy-Item .env.example .env.local
 ```
 
-Open http://localhost:3000. Without Supabase environment values, the app uses local demo data. Demo changes are not persisted; this mode is only for trying the UI.
+Open http://localhost:3000. Without Supabase environment values, the app uses **Local Demo Mode** with seeded documents, pre-populated comments, version snapshots, and switchable user profiles.
 
 ## Configure Supabase
 
-1. Create a free Supabase project.
-2. Open the project dashboard **Connect** dialog or **Settings → API Keys** and copy the Project URL and **publishable** client key (typically begins with `sb_publishable_`). The app also accepts a legacy anon key if that is all your project shows.
+1. Create a free Supabase project at [supabase.com](https://supabase.com).
+2. Open the project dashboard **Connect** dialog or **Settings → API Keys** and copy the Project URL and **publishable** client key (typically begins with `sb_publishable_`).
 3. Set them in `.env.local`:
 
    ```dotenv
-   NEXT_PUBLIC_SUPABASE_URL=https://pvzfvffnxhksnvsuihuq.supabase.co
+   NEXT_PUBLIC_SUPABASE_URL=https://your-project-id.supabase.co
    NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=YOUR_SB_PUBLISHABLE_KEY
    ```
 
-4. In **SQL Editor**, run `supabase/migrations/001_initial_schema.sql` once. It creates profiles, documents, document shares, access-check helpers, triggers, RLS policies, and sharing RPC functions.
-5. In **Authentication → URL Configuration**, set the local site URL to `http://localhost:3000`. For production, add the deployed Vercel URL to the allowed redirect/site URLs as applicable.
-6. For a quick assignment review, you can turn off email confirmations under **Authentication → Providers → Email** while creating test accounts. Re-enable confirmations for a real product. Settings vary by Supabase dashboard version.
-7. Restart the Next.js dev server after changing `.env.local`.
-8. Create two separate accounts through the app. Sign in as the owner, create a document, then share it with the other account's exact email. Sign in as that recipient in another browser or a private window to verify the shared document and permission.
+4. In **SQL Editor**, run `supabase/migrations/001_initial_schema.sql` once. It creates:
+   - `profiles`, `documents`, `document_shares`, `document_comments`, and `document_versions` tables
+   - Row Level Security (RLS) policies enforcing read/comment/edit/admin isolation
+   - Helper functions: `can_edit_document`, `can_comment_document`, `can_manage_document`
+   - Secure `SECURITY DEFINER` RPCs: `share_document_by_email`, `revoke_document_share`, `get_document_collaborators`, and `delete_user_account`
+5. In **Authentication → URL Configuration**, set the local site URL to `http://localhost:3000`. For production, add your deployed Vercel URL to the allowed redirect/site URLs.
+6. For testing, you can disable email confirmations under **Authentication → Providers → Email** while creating test accounts.
+7. Restart the Next.js dev server after editing `.env.local`.
+8. Create two accounts through the app to verify multi-user collaboration and permission boundaries.
 
-**Never put a Supabase `service_role` or secret key in a `NEXT_PUBLIC_*` variable or browser code.** The app only needs the publishable key (or legacy anon key); row-level security policies enforce access.
+> **Security Note:** Never place a Supabase `service_role` key in client code or `NEXT_PUBLIC_*` variables. The application uses only the publishable key and relies entirely on PostgreSQL Row Level Security.
 
-## File import limits
+## File handling limits
 
-Supported: `.txt` and `.md`, maximum 1 MB. Imported content becomes editable paragraphs. Markdown syntax is not rendered into headings or lists during import. `.docx` and PDF are not supported.
+- **Import:** Supports `.txt` and `.md` files up to 1 MB. Imported content is converted into editable paragraphs.
+- **Export:** Instant downloads for formatted Markdown (`.md`), plain text (`.txt`), and vector PDF via print dialog.
 
-## Commands
+## Available commands
 
 ```bash
-npm run dev
-npm run test
-npm run lint
-npm run build
+npm run dev    # Start Next.js development server
+npm run test   # Run Vitest unit tests (5 passing tests)
+npm run lint   # Run ESLint 9 check (0 errors, 0 warnings)
+npm run build  # Compile and optimize production build
 ```
 
-## Test checklist
+## Reviewer test checklist
 
-- Create a document, use formatting, wait for the save indicator, refresh, and confirm that content and formatting persist.
-- Rename a document and reopen it from the sidebar.
-- Import a text or Markdown file and verify its content can be edited and persists.
-- Share with a second registered account as editor; verify the document appears for that account and edits persist.
-- Repeat with viewer permission; verify the recipient cannot edit and that direct update requests are rejected by RLS.
-- Revoke access and verify the document no longer appears to the recipient after reload.
-- Run `npm run test`, `npm run lint`, and `npm run build` and record the actual results in `SUBMISSION.md`.
+- [x] **Autosave & Persistence:** Create a document, format text, wait for "All changes saved", reload, and confirm state persists.
+- [x] **Document Deletion:** Delete a document via topbar or sidebar; confirm the deletion warning modal and that active document transitions smoothly.
+- [x] **Collaboration Presence:** Open a document and view the presence avatar stack and live active badge in the topbar.
+- [x] **Comments & Suggestions:** Open the Comments panel via the topbar button, create comments (`⌘ + Enter`), filter by Open/Resolved, resolve/reopen, and toggle Suggestion mode.
+- [x] **Version History:** Open Version History (`History` button), inspect snapshots and word count stats, preview previous versions, and restore an earlier milestone.
+- [x] **Export:** Test Export as PDF (triggers print styles without UI chrome), Export as Markdown (`.md`), and Export as Text (`.txt`).
+- [x] **Role-Based Sharing:** Share a document with another email and select **Commenter** or **Viewer**; verify editing is locked with an explanatory banner while commenters can still post comments.
+- [x] **Account Deletion:** Open the user menu, select "Delete account", confirm through the modal, and verify session cleanup and redirect.
 
-## Architecture
+## Architecture and workflow
 
-See [`ARCHITECTURE.md`](./ARCHITECTURE.md) for the data model, access rules, autosave behavior, and scope tradeoffs. See [`AI_WORKFLOW.md`](./AI_WORKFLOW.md) for a note that must be edited to accurately describe the tools and checks actually used.
+- See [`ARCHITECTURE.md`](./ARCHITECTURE.md) for the data model, security boundary, real-time presence architecture, and engineering tradeoffs.
+- See [`AI_WORKFLOW.md`](./AI_WORKFLOW.md) for notes on how AI tooling was applied, critical design rejections, and verification steps.

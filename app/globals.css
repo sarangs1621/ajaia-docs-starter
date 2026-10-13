@@ -571,7 +571,7 @@ button:focus-visible, input:focus-visible, select:focus-visible {
   gap: 16px;
   position: sticky;
   top: 0;
-  z-index: 5;
+  z-index: 100;
 }
 
 .breadcrumbs {
@@ -685,6 +685,7 @@ button:focus-visible, input:focus-visible, select:focus-visible {
   position: relative;
   display: flex;
   align-items: center;
+  z-index: 120;
 }
 
 .dropdown-menu {
@@ -694,10 +695,10 @@ button:focus-visible, input:focus-visible, select:focus-visible {
   background: #ffffff;
   border: 1px solid var(--line);
   border-radius: 12px;
-  box-shadow: var(--shadow-modal);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15), 0 1px 3px rgba(0, 0, 0, 0.08);
   padding: 6px;
   min-width: 200px;
-  z-index: 30;
+  z-index: 9999;
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -1067,7 +1068,7 @@ button:focus-visible, input:focus-visible, select:focus-visible {
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 50;
+  z-index: 100;
   background: rgba(15, 23, 42, 0.45);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
@@ -1895,6 +1896,8 @@ button:focus-visible, input:focus-visible, select:focus-visible {
   flex: 1;
   overflow: hidden;
   position: relative;
+  z-index: 1;
+  isolation: isolate;
 }
 
 /* Comments Slide-over Panel */
@@ -1908,7 +1911,7 @@ button:focus-visible, input:focus-visible, select:focus-visible {
   height: 100%;
   box-shadow: -4px 0 16px rgba(15, 23, 42, 0.04);
   animation: slideInRight 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-  z-index: 10;
+  z-index: 2;
 }
 
 @keyframes slideInRight {

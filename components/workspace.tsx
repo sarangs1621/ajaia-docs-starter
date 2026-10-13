@@ -758,7 +758,7 @@ export default function Workspace() {
       </aside>}
 
       <section className="main-panel">
-        <header className="topbar">
+        <header className="topbar" style={{ zIndex: 100, position: "sticky", top: 0 }}>
           {!sidebarOpen && <button className="icon-button" aria-label="Show sidebar" onClick={() => setSidebarOpen(true)}><PanelLeftClose size={17}/></button>}
           <div className="breadcrumbs"><span>Documents</span><span className="crumb-slash">/</span><strong>{activeDoc?.title ?? "No document selected"}</strong></div>
 
@@ -820,7 +820,7 @@ export default function Workspace() {
             >
               <Trash2 size={16}/>
             </button>
-            <div className="menu-container" ref={menuRef}>
+            <div className="menu-container" ref={menuRef} style={{ position: "relative", zIndex: 120 }}>
               <button
                 className="icon-button"
                 aria-label="More options"
@@ -831,7 +831,7 @@ export default function Workspace() {
                 <MoreHorizontal size={18}/>
               </button>
               {menuOpen && (
-                <div className="dropdown-menu" role="menu">
+                <div className="dropdown-menu" role="menu" style={{ zIndex: 9999, position: "absolute", top: "calc(100% + 8px)", right: 0 }}>
                   <button
                     className="dropdown-item"
                     role="menuitem"
@@ -908,7 +908,7 @@ export default function Workspace() {
         </header>
         {notice && <div className="notice-bar"><Sparkles size={14}/>{notice}<button onClick={() => setNotice("")} aria-label="Dismiss notice">×</button></div>}
 
-        <div className="workspace-content-row">
+        <div className="workspace-content-row" style={{ zIndex: 1, position: "relative" }}>
           {activeDoc ? <div className="editor-scroll">
             <div className="document-meta">
               <div className="doc-type">
@@ -971,7 +971,7 @@ export default function Workspace() {
 
           {/* Slide-over Comments Panel */}
           {showComments && activeDoc && (
-            <aside className="comments-panel">
+            <aside className="comments-panel" style={{ zIndex: 2 }}>
               <div className="comments-panel-header">
                 <h3><MessageSquare size={16}/> Comments ({activeDocComments.length})</h3>
                 <button className="icon-button" onClick={() => setShowComments(false)} aria-label="Close comments panel"><X size={16}/></button>

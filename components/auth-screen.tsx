@@ -4,13 +4,13 @@ import { FormEvent, useState } from "react";
 import { ArrowRight, LoaderCircle, LockKeyhole, Mail } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 
-export default function AuthScreen() {
+export default function AuthScreen({ initialMessage }: { initialMessage?: string } = {}) {
   const [mode, setMode] = useState<"signin" | "signup">("signin");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState("");
+  const [message, setMessage] = useState(initialMessage ?? "");
   const [error, setError] = useState("");
 
   async function submit(event: FormEvent<HTMLFormElement>) {

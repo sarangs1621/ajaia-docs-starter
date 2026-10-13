@@ -530,6 +530,22 @@ button:focus-visible, input:focus-visible, select:focus-visible {
   white-space: nowrap;
 }
 
+.profile-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.profile-actions .delete-account-btn {
+  color: var(--muted);
+  transition: all 0.15s ease;
+}
+
+.profile-actions .delete-account-btn:hover {
+  background: var(--red-soft);
+  color: var(--red);
+}
+
 /* Main Panel & Topbar */
 .main-panel {
   flex: 1;

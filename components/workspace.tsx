@@ -5,7 +5,7 @@ import type { Session, User } from "@supabase/supabase-js";
 import {
   FilePlus2, FileText, Search, Upload, Users, Clock3, ChevronDown,
   MoreHorizontal, Sparkles, Command, PanelLeftClose, Share2, LogOut,
-  X, ShieldCheck, LoaderCircle, Trash2, Download
+  X, ShieldCheck, LoaderCircle, Trash2, Download, UserX
 } from "lucide-react";
 import Editor from "@/components/editor";
 import AuthScreen from "@/components/auth-screen";
@@ -84,6 +84,9 @@ export default function Workspace() {
   const [sharingBusy, setSharingBusy] = useState(false);
   const [docToDelete, setDocToDelete] = useState<DemoDoc | null>(null);
   const [deletingBusy, setDeletingBusy] = useState(false);
+  const [showDeleteAccountModal, setShowDeleteAccountModal] = useState(false);
+  const [deletingAccountBusy, setDeletingAccountBusy] = useState(false);
+  const [authScreenMessage, setAuthScreenMessage] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const saveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
@@ -344,6 +347,34 @@ export default function Workspace() {
     setNotice(`Deleted "${docTarget.title}".`);
   }
 
+  async function deleteAccount() {
+    setDeletingAccountBusy(true);
+    try {
+      if (authenticated && supabase) {
+        const { error } = await supabase.rpc("delete_user_account");
+        if (error) {
+          // Fallback if RPC not applied: delete documents and profiles directly
+          await supabase.from("documents").delete().eq("owner_id", currentUser.id);
+          await supabase.from("profiles").delete().eq("id", currentUser.id);
+        }
+        setAuthScreenMessage("Your account and all associated documents have been permanently deleted.");
+        setShowDeleteAccountModal(false);
+        await supabase.auth.signOut();
+      } else {
+        setDocuments(initialDocs);
+        setActiveId("welcome-doc");
+        setShowDeleteAccountModal(false);
+        setNotice("Demo workspace has been reset.");
+      }
+    } catch (cause) {
+      const msg = cause instanceof Error ? cause.message : "Could not delete account";
+      setNotice(`Failed to delete account: ${msg}`);
+      setShowDeleteAccountModal(false);
+    } finally {
+      setDeletingAccountBusy(false);
+    }
+  }
+
   function exportDocument(format: "md" | "txt") {
     if (!activeDoc) return;
     try {
@@ -380,7 +411,7 @@ export default function Workspace() {
   }
 
   if (supabase && !authReady) return <main className="auth-loading"><LoaderCircle size={22} className="spin"/><span>Opening your workspace…</span></main>;
-  if (supabase && !session) return <AuthScreen/>;
+  if (supabase && !session) return <AuthScreen initialMessage={authScreenMessage}/>;
 
   return (
     <main className="app-shell">
@@ -426,7 +457,33 @@ export default function Workspace() {
           {loadingDocs && <p className="empty-search">Loading documents…</p>}
           {!loadingDocs && visibleDocs.length === 0 && <p className="empty-search">No documents found. Create one to get started.</p>}
         </div>
-        <div className="sidebar-bottom"><div className="avatar">{currentUser.name.slice(0,1).toUpperCase()}</div><div className="profile-copy"><strong>{currentUser.name}</strong><small>{currentUser.email}</small></div>{authenticated && <button className="icon-button" title="Sign out" aria-label="Sign out" onClick={() => { void supabase?.auth.signOut(); }}><LogOut size={16}/></button>}</div>
+        <div className="sidebar-bottom">
+          <div className="avatar">{currentUser.name.slice(0, 1).toUpperCase()}</div>
+          <div className="profile-copy">
+            <strong>{currentUser.name}</strong>
+            <small>{currentUser.email}</small>
+          </div>
+          <div className="profile-actions">
+            <button
+              className="icon-button delete-account-btn"
+              title={authenticated ? "Delete account" : "Reset demo workspace"}
+              aria-label={authenticated ? "Delete account" : "Reset demo workspace"}
+              onClick={() => setShowDeleteAccountModal(true)}
+            >
+              <UserX size={15}/>
+            </button>
+            {authenticated && (
+              <button
+                className="icon-button"
+                title="Sign out"
+                aria-label="Sign out"
+                onClick={() => { void supabase?.auth.signOut(); }}
+              >
+                <LogOut size={15}/>
+              </button>
+            )}
+          </div>
+        </div>
       </aside>}
 
       <section className="main-panel">
@@ -560,6 +617,57 @@ export default function Workspace() {
           </div>
         </section>
       </div>}
+
+      {showDeleteAccountModal && (
+        <div
+          className="modal-backdrop"
+          role="presentation"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget && !deletingAccountBusy) setShowDeleteAccountModal(false);
+          }}
+        >
+          <section className="delete-modal" role="dialog" aria-modal="true" aria-labelledby="delete-account-title">
+            <div className="delete-modal-warning">
+              <div className="delete-icon-badge">
+                <UserX size={20}/>
+              </div>
+              <div className="delete-modal-body">
+                <h2 id="delete-account-title">
+                  {authenticated ? "Delete account" : "Reset demo workspace"}
+                </h2>
+                <p>
+                  {authenticated ? (
+                    <>
+                      Are you sure you want to permanently delete your account (<strong>{currentUser.email}</strong>)? All documents created by you and all sharing permissions will be permanently erased. This action cannot be undone.
+                    </>
+                  ) : (
+                    <>
+                      Are you sure you want to reset your local demo data? This will clear all locally created documents and reset to the default workspace.
+                    </>
+                  )}
+                </p>
+              </div>
+            </div>
+            <div className="delete-modal-footer">
+              <button
+                className="secondary-button modal-cancel"
+                disabled={deletingAccountBusy}
+                onClick={() => setShowDeleteAccountModal(false)}
+              >
+                Cancel
+              </button>
+              <button
+                className="danger-button"
+                disabled={deletingAccountBusy}
+                onClick={() => void deleteAccount()}
+              >
+                {deletingAccountBusy && <LoaderCircle size={14} className="spin"/>}
+                {authenticated ? "Permanently delete account" : "Reset workspace"}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
     </main>
   );
 }

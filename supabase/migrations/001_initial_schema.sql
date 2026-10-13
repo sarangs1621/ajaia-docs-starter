@@ -186,11 +186,28 @@ begin
 end;
 $$;
 
+create or replace function public.delete_user_account()
+returns boolean language plpgsql security definer set search_path = '' as $$
+declare
+  v_user_id uuid := auth.uid();
+begin
+  if v_user_id is null then
+    raise exception 'Not authenticated';
+  end if;
+  -- Delete from auth.users; foreign keys cascade to public.profiles, documents, and document_shares
+  delete from auth.users where id = v_user_id;
+  return true;
+end;
+$$;
+
 -- Explicit API grants: RLS filters rows only after SQL privileges permit the operation.
 grant usage on schema public to authenticated;
-grant select, update on table public.profiles to authenticated;
+grant select, update, delete on table public.profiles to authenticated;
 grant select, insert, update, delete on table public.documents to authenticated;
 grant select, insert, update, delete on table public.document_shares to authenticated;
+
+drop policy if exists "Users can delete their profile" on public.profiles;
+create policy "Users can delete their profile" on public.profiles for delete using (auth.uid() = id);
 
 -- SECURITY DEFINER functions must not inherit the default EXECUTE grant to PUBLIC/anon.
 revoke all on function public.is_document_owner(uuid) from public, anon;
@@ -199,6 +216,7 @@ revoke all on function public.can_edit_document(uuid) from public, anon;
 revoke all on function public.share_document_by_email(uuid, text, text) from public, anon;
 revoke all on function public.list_document_shares(uuid) from public, anon;
 revoke all on function public.revoke_document_share_by_email(uuid, text) from public, anon;
+revoke all on function public.delete_user_account() from public, anon;
 revoke all on function public.handle_new_user() from public, anon, authenticated;
 revoke all on function public.touch_updated_at() from public, anon, authenticated;
 revoke all on function public.prevent_document_owner_change() from public, anon, authenticated;
@@ -209,3 +227,4 @@ grant execute on function public.can_edit_document(uuid) to authenticated;
 grant execute on function public.share_document_by_email(uuid, text, text) to authenticated;
 grant execute on function public.list_document_shares(uuid) to authenticated;
 grant execute on function public.revoke_document_share_by_email(uuid, text) to authenticated;
+grant execute on function public.delete_user_account() to authenticated;

@@ -21,6 +21,7 @@ This file details the deliverables, verification results, and reviewer instructi
 - `npm run build`: **Passed** (Next.js 15 production build compiled and statically optimized successfully)
 - Live Supabase two-account sharing: **Verified** (Authenticated session established, documents load and autosave to PostgreSQL, shares enforced by RLS)
 - Document deletion: **Verified** (Confirmed with deletion modal, database deletion cascade, and active document transition)
+- User account deletion: **Verified** (Confirmed with warning modal, `delete_user_account` RPC / cascading clean up, session termination, and redirect with confirmation banner)
 - File Import / Export: **Verified** (Import `.txt`/`.md` up to 1MB; Export `.md` and `.txt`)
 
 ---
@@ -63,10 +64,11 @@ If you wish to test the product immediately without configuring Supabase:
    - Share by email with Viewer or Editor permissions via secure database RPC (`share_document_by_email`)
    - Revoke access in real-time
    - Viewer mode locks document editing and prevents updates via RLS
-4. **Persistence**:
+4. **Persistence & Account Management**:
    - Autosave with debounced timer (650ms)
    - Visual status indicators (`All changes saved`, `Saving…`, `Save failed`, `Demo · not saved`)
    - PostgreSQL RLS enforces user-level data isolation
+   - User account deletion: permanent account deletion via secure RPC (`delete_user_account`), cascading across documents and shares with confirmation modal
 
 ---
 

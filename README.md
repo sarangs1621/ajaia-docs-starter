@@ -15,7 +15,7 @@ A lightweight collaborative document editor built for the Full Stack Product Eng
 | Document version history | Implemented | Milestone snapshots, timeline list with word count & timestamps, content preview, and one-click restore/rollback |
 | Role-based sharing permissions | Implemented | 4 granular roles: **Viewer**, **Commenter**, **Editor**, and **Admin**; enforced via Postgres RLS and UI guards |
 | User account deletion | Implemented | Confirmation dialog, secure `delete_user_account` RPC cascading across data, and session cleanup |
-| Supabase authentication | Implemented | Email/password sign-in and sign-up with session persistence |
+| Supabase authentication | Implemented & manually verified | Email/password sign-in, sign-up, and session persistence tested against the configured live Supabase project |
 | Persistent document CRUD & autosave | Implemented | Debounced save (650ms) to Supabase PostgreSQL with RLS isolation |
 | Local demo mode | Implemented | Zero-configuration offline mode with switchable demo users and seeded collaborative data |
 | Automated tests | Implemented | 5 Vitest unit tests covering text import, file extension validation, plain text export, Markdown export, and empty documents |
@@ -62,7 +62,7 @@ Open http://localhost:3000. Without Supabase environment values, the app uses **
 5. In **Authentication → URL Configuration**, set the local site URL to `http://localhost:3000`. For production, add your deployed Vercel URL to the allowed redirect/site URLs.
 6. For testing, you can disable email confirmations under **Authentication → Providers → Email** while creating test accounts.
 7. Restart the Next.js dev server after editing `.env.local`.
-8. Create two accounts through the app to verify multi-user collaboration and permission boundaries.
+8. To independently verify a separately configured instance, create two accounts through the app and test multi-user collaboration and permission boundaries. This setup step is for reviewer testing and does not mean live Supabase verification for this submission is pending.
 
 > **Security Note:** Never place a Supabase `service_role` key in client code or `NEXT_PUBLIC_*` variables. The application uses only the publishable key and relies entirely on PostgreSQL Row Level Security.
 

@@ -5,7 +5,8 @@ import type { Session, User } from "@supabase/supabase-js";
 import {
   FilePlus2, FileText, Search, Upload, Users, Clock3, ChevronDown,
   MoreHorizontal, Sparkles, Command, PanelLeftClose, Share2, LogOut,
-  X, ShieldCheck, LoaderCircle, Trash2, Download, UserX
+  X, ShieldCheck, LoaderCircle, Trash2, Download, UserX, MessageSquare,
+  Clock, Check, Printer, Edit3, Eye, RotateCcw, Plus
 } from "lucide-react";
 import Editor from "@/components/editor";
 import AuthScreen from "@/components/auth-screen";
@@ -17,11 +18,62 @@ import {
   documentToPlainText,
 } from "@/lib/document-content";
 import { supabase } from "@/lib/supabase";
-import type { SharedPerson, WorkspaceDocument } from "@/lib/types";
+import type {
+  SharedPerson,
+  WorkspaceDocument,
+  DocumentRole,
+  DocumentComment,
+  DocumentVersion,
+  CollaboratorPresence,
+} from "@/lib/types";
 
 const DEMO_USER = { id: "demo-owner", name: "Sarang Nair", email: "sarang@example.com" };
 const DEMO_COLLABORATOR = { id: "demo-collaborator", name: "Aditi Menon", email: "aditi@example.com" };
 type DemoDoc = WorkspaceDocument;
+
+function getCollaboratorColor(name: string): string {
+  const colors = ["#4f46e5", "#059669", "#d97706", "#7c3aed", "#db2777", "#0284c7"];
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
+  return colors[Math.abs(hash) % colors.length];
+}
+
+const initialComments: Record<string, DocumentComment[]> = {
+  "welcome-doc": [
+    {
+      id: "comment-1",
+      document_id: "welcome-doc",
+      author_id: DEMO_COLLABORATOR.id,
+      author_name: DEMO_COLLABORATOR.name,
+      author_email: DEMO_COLLABORATOR.email,
+      text: "Great overview! Should we add a quick tip about keyboard shortcuts (like ⌘B and ⌘I)?",
+      created_at: new Date(Date.now() - 3600000).toISOString(),
+      resolved: false,
+    },
+    {
+      id: "comment-2",
+      document_id: "welcome-doc",
+      author_id: DEMO_USER.id,
+      author_name: DEMO_USER.name,
+      author_email: DEMO_USER.email,
+      text: "Good point, already added to the footer tip bar.",
+      created_at: new Date(Date.now() - 1800000).toISOString(),
+      resolved: true,
+    },
+  ],
+  "product-brief": [
+    {
+      id: "comment-3",
+      document_id: "product-brief",
+      author_id: DEMO_USER.id,
+      author_name: DEMO_USER.name,
+      author_email: DEMO_USER.email,
+      text: "Let's review the focus areas for Q4 before the Friday sync.",
+      created_at: new Date(Date.now() - 7200000).toISOString(),
+      resolved: false,
+    },
+  ],
+};
 
 const initialDocs: DemoDoc[] = [
   {
@@ -58,6 +110,31 @@ const initialDocs: DemoDoc[] = [
   }
 ];
 
+const initialVersions: Record<string, DocumentVersion[]> = {
+  "welcome-doc": [
+    {
+      id: "v-1",
+      document_id: "welcome-doc",
+      title: "Welcome to Ajaia · Initial Draft",
+      content: initialDocs[0].content,
+      author_name: "Sarang Nair",
+      created_at: new Date(Date.now() - 86400000).toISOString(),
+      word_count: 58,
+    },
+  ],
+  "product-brief": [
+    {
+      id: "v-2",
+      document_id: "product-brief",
+      title: "Product brief — Q4 · Draft v1",
+      content: initialDocs[1].content,
+      author_name: "Aditi Menon",
+      created_at: new Date(Date.now() - 172800000).toISOString(),
+      word_count: 42,
+    },
+  ],
+};
+
 function displayName(user: User) {
   const metadataName = user.user_metadata?.display_name;
   return typeof metadataName === "string" && metadataName.trim()
@@ -71,7 +148,7 @@ export default function Workspace() {
   const [query, setQuery] = useState("");
   const [showShare, setShowShare] = useState(false);
   const [shareEmail, setShareEmail] = useState("");
-  const [sharePermission, setSharePermission] = useState<"viewer" | "editor">("editor");
+  const [sharePermission, setSharePermission] = useState<DocumentRole>("editor");
   const [shareNotice, setShareNotice] = useState("");
   const [sharedPeople, setSharedPeople] = useState<SharedPerson[]>([]);
   const [userMode, setUserMode] = useState<"owner" | "collaborator">("owner");
@@ -88,6 +165,22 @@ export default function Workspace() {
   const [deletingAccountBusy, setDeletingAccountBusy] = useState(false);
   const [authScreenMessage, setAuthScreenMessage] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
+
+  // Real-time collaboration indicators
+  const [collaborators, setCollaborators] = useState<CollaboratorPresence[]>([]);
+
+  // Commenting and suggestion mode
+  const [showComments, setShowComments] = useState(false);
+  const [comments, setComments] = useState<Record<string, DocumentComment[]>>(initialComments);
+  const [newCommentText, setNewCommentText] = useState("");
+  const [commentFilter, setCommentFilter] = useState<"all" | "open" | "resolved">("open");
+  const [editorMode, setEditorMode] = useState<"edit" | "suggest">("edit");
+
+  // Version history
+  const [showVersionHistory, setShowVersionHistory] = useState(false);
+  const [versions, setVersions] = useState<Record<string, DocumentVersion[]>>(initialVersions);
+  const [selectedVersionId, setSelectedVersionId] = useState<string | null>(null);
+
   const menuRef = useRef<HTMLDivElement>(null);
   const saveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 
@@ -135,7 +228,7 @@ export default function Workspace() {
         if (error) throw error;
         sharedDocs = (data ?? []) as Array<Record<string, unknown>>;
       }
-      const permissionById = new Map((sharesResult.data ?? []).map((share) => [share.document_id, share.permission as "viewer" | "editor"]));
+      const permissionById = new Map((sharesResult.data ?? []).map((share) => [share.document_id, (share.permission as DocumentRole) || "viewer"]));
       let mapped: DemoDoc[] = [
         ...((ownedResult.data ?? []).map((doc) => ({ ...doc, access: "owned" as const, permission: "editor" as const })) as DemoDoc[]),
         ...(sharedDocs.map((doc) => ({ ...doc, access: "shared" as const, permission: permissionById.get(String(doc.id)) ?? "viewer" })) as DemoDoc[]),
@@ -188,17 +281,124 @@ export default function Workspace() {
   const visibleDocs = useMemo(() => {
     const current = documents.map((doc) => {
       if (authenticated) return doc;
-      return { ...doc, access: (doc.owner_id === currentUser.id ? "owned" : "shared") as "owned" | "shared", permission: "editor" as const };
+      return { ...doc, access: (doc.owner_id === currentUser.id ? "owned" : "shared") as "owned" | "shared", permission: doc.permission ?? "editor" };
     });
     return current.filter((doc) => {
       const isVisible = authenticated ? true : (doc.owner_id === currentUser.id || doc.id === "welcome-doc" || doc.id === "product-brief");
       return isVisible && doc.title.toLowerCase().includes(query.toLowerCase());
     });
   }, [documents, query, authenticated, currentUser.id]);
+
   const activeDoc = visibleDocs.find((doc) => doc.id === activeId) ?? visibleDocs[0] ?? null;
-  const canEdit = !activeDoc || activeDoc.access === "owned" || activeDoc.permission === "editor";
-  const canShare = !authenticated || activeDoc?.access === "owned";
-  const canDelete = Boolean(activeDoc && (!authenticated ? activeDoc.owner_id === currentUser.id : activeDoc.access === "owned"));
+  const canEdit = !activeDoc || (activeDoc.access === "owned" || activeDoc.permission === "editor" || activeDoc.permission === "admin");
+  const canComment = !activeDoc || (activeDoc.access === "owned" || activeDoc.permission === "commenter" || activeDoc.permission === "editor" || activeDoc.permission === "admin");
+  const canShare = !authenticated || (activeDoc?.access === "owned" || activeDoc?.permission === "admin");
+  const canDelete = Boolean(activeDoc && (!authenticated ? activeDoc.owner_id === currentUser.id : (activeDoc.access === "owned" || activeDoc.permission === "admin")));
+
+  // Real-time presence effect
+  useEffect(() => {
+    if (!activeDoc) return;
+    if (authenticated && supabase) {
+      const channel = supabase.channel(`presence:doc:${activeDoc.id}`, {
+        config: { presence: { key: currentUser.id } },
+      });
+      channel
+        .on("presence", { event: "sync" }, () => {
+          const state = channel.presenceState();
+          const activeUsers: CollaboratorPresence[] = [];
+          for (const key of Object.keys(state)) {
+            const presences = state[key] as Array<Record<string, unknown>>;
+            if (presences && presences.length > 0) {
+              const p = presences[0];
+              activeUsers.push({
+                id: String(p.id || key),
+                name: String(p.name || "Collaborator"),
+                email: String(p.email || ""),
+                color: String(p.color || getCollaboratorColor(String(p.name || ""))),
+                status: (p.status as "editing" | "viewing") || "viewing",
+                lastActive: String(p.lastActive || new Date().toISOString()),
+              });
+            }
+          }
+          if (activeUsers.length > 0) {
+            setCollaborators(activeUsers);
+          } else {
+            setCollaborators([
+              {
+                id: currentUser.id,
+                name: currentUser.name,
+                email: currentUser.email,
+                color: getCollaboratorColor(currentUser.name),
+                status: canEdit ? "editing" : "viewing",
+                lastActive: new Date().toISOString(),
+              },
+            ]);
+          }
+        })
+        .subscribe(async (status) => {
+          if (status === "SUBSCRIBED") {
+            await channel.track({
+              id: currentUser.id,
+              name: currentUser.name,
+              email: currentUser.email,
+              color: getCollaboratorColor(currentUser.name),
+              status: canEdit ? "editing" : "viewing",
+              lastActive: new Date().toISOString(),
+            });
+          }
+        });
+      return () => {
+        void channel.unsubscribe();
+      };
+    } else {
+      const isOwner = userMode === "owner";
+      setCollaborators([
+        {
+          id: currentUser.id,
+          name: `${currentUser.name} (You)`,
+          email: currentUser.email,
+          color: getCollaboratorColor(currentUser.name),
+          status: canEdit ? "editing" : "viewing",
+          lastActive: new Date().toISOString(),
+        },
+        {
+          id: isOwner ? DEMO_COLLABORATOR.id : DEMO_USER.id,
+          name: isOwner ? DEMO_COLLABORATOR.name : DEMO_USER.name,
+          email: isOwner ? DEMO_COLLABORATOR.email : DEMO_USER.email,
+          color: getCollaboratorColor(isOwner ? DEMO_COLLABORATOR.name : DEMO_USER.name),
+          status: "viewing",
+          lastActive: new Date().toISOString(),
+        },
+      ]);
+    }
+  }, [activeDoc, authenticated, currentUser.id, currentUser.name, currentUser.email, canEdit, userMode]);
+
+  // Comment memos
+  const activeDocComments = useMemo(() => {
+    if (!activeDoc) return [];
+    return comments[activeDoc.id] || [];
+  }, [activeDoc, comments]);
+
+  const openComments = useMemo(() => {
+    return activeDocComments.filter((c) => !c.resolved);
+  }, [activeDocComments]);
+
+  const filteredComments = useMemo(() => {
+    if (commentFilter === "open") return activeDocComments.filter((c) => !c.resolved);
+    if (commentFilter === "resolved") return activeDocComments.filter((c) => c.resolved);
+    return activeDocComments;
+  }, [activeDocComments, commentFilter]);
+
+  // Version history memos
+  const activeDocVersions = useMemo(() => {
+    if (!activeDoc) return [];
+    return versions[activeDoc.id] || [];
+  }, [activeDoc, versions]);
+
+  const activeVersionPreview = useMemo(() => {
+    if (!selectedVersionId) return activeDocVersions[0] || null;
+    return activeDocVersions.find((v) => v.id === selectedVersionId) || activeDocVersions[0] || null;
+  }, [activeDocVersions, selectedVersionId]);
 
   const readingStats = useMemo(() => {
     if (!activeDoc) return { words: 0, minutes: 1 };
@@ -375,8 +575,13 @@ export default function Workspace() {
     }
   }
 
-  function exportDocument(format: "md" | "txt") {
+  function exportDocument(format: "md" | "txt" | "pdf") {
     if (!activeDoc) return;
+    if (format === "pdf") {
+      window.print();
+      setNotice(`Prepared "${activeDoc.title}" for PDF print / export.`);
+      return;
+    }
     try {
       const content = format === "md" ? documentToMarkdown(activeDoc.content) : documentToPlainText(activeDoc.content);
       let baseTitle = (activeDoc.title || "document")
@@ -408,6 +613,72 @@ export default function Workspace() {
     } catch (err) {
       setNotice(`Export failed: ${err instanceof Error ? err.message : "Could not export file"}`);
     }
+  }
+
+  function addComment() {
+    if (!activeDoc || !canComment || !newCommentText.trim()) return;
+    const comment: DocumentComment = {
+      id: crypto.randomUUID(),
+      document_id: activeDoc.id,
+      author_id: currentUser.id,
+      author_name: currentUser.name,
+      author_email: currentUser.email,
+      text: newCommentText.trim(),
+      created_at: new Date().toISOString(),
+      resolved: false,
+    };
+    setComments((prev) => ({
+      ...prev,
+      [activeDoc.id]: [comment, ...(prev[activeDoc.id] || [])],
+    }));
+    setNewCommentText("");
+    setNotice("Comment added to discussion.");
+  }
+
+  function toggleResolveComment(commentId: string) {
+    if (!activeDoc) return;
+    setComments((prev) => ({
+      ...prev,
+      [activeDoc.id]: (prev[activeDoc.id] || []).map((c) =>
+        c.id === commentId ? { ...c, resolved: !c.resolved } : c
+      ),
+    }));
+  }
+
+  function deleteComment(commentId: string) {
+    if (!activeDoc) return;
+    setComments((prev) => ({
+      ...prev,
+      [activeDoc.id]: (prev[activeDoc.id] || []).filter((c) => c.id !== commentId),
+    }));
+  }
+
+  function createVersionSnapshot(customTitle?: string) {
+    if (!activeDoc) return;
+    const text = documentToPlainText(activeDoc.content);
+    const wordCount = text.trim() ? text.trim().split(/\s+/).filter(Boolean).length : 0;
+    const snapshot: DocumentVersion = {
+      id: crypto.randomUUID(),
+      document_id: activeDoc.id,
+      title: customTitle || `${activeDoc.title} · Snapshot (${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })})`,
+      content: structuredClone(activeDoc.content),
+      author_name: currentUser.name,
+      created_at: new Date().toISOString(),
+      word_count: wordCount,
+    };
+    setVersions((prev) => ({
+      ...prev,
+      [activeDoc.id]: [snapshot, ...(prev[activeDoc.id] || [])],
+    }));
+    setSelectedVersionId(snapshot.id);
+    setNotice("Saved a version snapshot.");
+  }
+
+  function restoreVersion(v: DocumentVersion) {
+    if (!activeDoc || !canEdit) return;
+    updateDocument({ content: structuredClone(v.content), title: v.title.replace(/ · Snapshot.*/, "") });
+    setNotice(`Restored document to version from ${new Date(v.created_at).toLocaleString([], { dateStyle: "short", timeStyle: "short" })}.`);
+    setShowVersionHistory(false);
   }
 
   if (supabase && !authReady) return <main className="auth-loading"><LoaderCircle size={22} className="spin"/><span>Opening your workspace…</span></main>;
@@ -490,13 +761,60 @@ export default function Workspace() {
         <header className="topbar">
           {!sidebarOpen && <button className="icon-button" aria-label="Show sidebar" onClick={() => setSidebarOpen(true)}><PanelLeftClose size={17}/></button>}
           <div className="breadcrumbs"><span>Documents</span><span className="crumb-slash">/</span><strong>{activeDoc?.title ?? "No document selected"}</strong></div>
+
+          {/* Real-time Collaboration Indicators */}
+          {activeDoc && (
+            <div className="collaborator-presence-stack">
+              <div className="avatar-stack">
+                {collaborators.map((c, i) => (
+                  <div
+                    key={c.id}
+                    className="collab-avatar"
+                    style={{ backgroundColor: c.color, zIndex: 10 - i }}
+                    title={`${c.name} · ${c.status === "editing" ? "Editing document" : "Viewing document"}`}
+                  >
+                    {c.name.slice(0, 1).toUpperCase()}
+                    <span className="collab-status-dot"/>
+                  </div>
+                ))}
+              </div>
+              <span className="collab-count-badge">
+                <span className="live-pulse"/>
+                {collaborators.length} active
+              </span>
+            </div>
+          )}
+
           <div className="topbar-actions">
             <span className={`save-indicator ${saveState}`}><span className="status-dot"/>{saveState === "saved" ? "All changes saved" : saveState === "saving" ? "Saving…" : saveState === "error" ? "Save failed" : "Demo · not saved"}</span>
-            <button className="share-button" disabled={!activeDoc || !canShare} title={!canShare ? "Only the document owner can share it" : "Share document"} onClick={() => { setShowShare(true); setShareNotice(""); setShareEmail(""); setSharePermission("editor"); }}><Share2 size={15}/> Share</button>
+
+            {/* Mode Selector */}
+            {canEdit && (
+              <button
+                className={`mode-toggle-btn ${editorMode === "suggest" ? "active" : ""}`}
+                onClick={() => setEditorMode(editorMode === "edit" ? "suggest" : "edit")}
+                title={editorMode === "edit" ? "Switch to Suggestion / Comment mode" : "Switch to Direct Editing mode"}
+              >
+                {editorMode === "edit" ? <><Edit3 size={13}/> Editing</> : <><Sparkles size={13}/> Suggesting</>}
+              </button>
+            )}
+
+            {/* Comments Toggle */}
+            <button
+              className={`icon-button comment-btn ${showComments ? "active" : ""}`}
+              onClick={() => setShowComments((prev) => !prev)}
+              title="Comments & discussions"
+              aria-label="Comments"
+            >
+              <MessageSquare size={16}/>
+              {openComments.length > 0 && <span className="comment-badge">{openComments.length}</span>}
+            </button>
+
+            <button className="share-button" disabled={!activeDoc || !canShare} title={!canShare ? "Only the document owner or admin can share it" : "Share document"} onClick={() => { setShowShare(true); setShareNotice(""); setShareEmail(""); setSharePermission("editor"); }}><Share2 size={15}/> Share</button>
             <button
               className="icon-button delete-action"
               disabled={!activeDoc || !canDelete}
-              title={!activeDoc ? "No document selected" : !canDelete ? "Only the document owner can delete this document" : "Delete document"}
+              title={!activeDoc ? "No document selected" : !canDelete ? "Only the document owner or admin can delete this document" : "Delete document"}
               aria-label="Delete document"
               onClick={() => { if (activeDoc && canDelete) setDocToDelete(activeDoc); }}
             >
@@ -514,6 +832,40 @@ export default function Workspace() {
               </button>
               {menuOpen && (
                 <div className="dropdown-menu" role="menu">
+                  <button
+                    className="dropdown-item"
+                    role="menuitem"
+                    disabled={!activeDoc}
+                    onClick={() => {
+                      setMenuOpen(false);
+                      setShowVersionHistory(true);
+                    }}
+                  >
+                    <Clock size={14}/> Version history
+                  </button>
+                  <button
+                    className="dropdown-item"
+                    role="menuitem"
+                    disabled={!activeDoc}
+                    onClick={() => {
+                      setMenuOpen(false);
+                      createVersionSnapshot();
+                    }}
+                  >
+                    <Sparkles size={14}/> Snapshot current milestone
+                  </button>
+                  <div className="dropdown-divider"/>
+                  <button
+                    className="dropdown-item"
+                    role="menuitem"
+                    disabled={!activeDoc}
+                    onClick={() => {
+                      setMenuOpen(false);
+                      exportDocument("pdf");
+                    }}
+                  >
+                    <Printer size={14}/> Export as PDF (Print)
+                  </button>
                   <button
                     className="dropdown-item"
                     role="menuitem"
@@ -541,7 +893,7 @@ export default function Workspace() {
                     className="dropdown-item danger"
                     role="menuitem"
                     disabled={!activeDoc || !canDelete}
-                    title={!canDelete ? "Only the document owner can delete this document" : "Delete document"}
+                    title={!canDelete ? "Only the document owner or admin can delete this document" : "Delete document"}
                     onClick={() => {
                       setMenuOpen(false);
                       if (activeDoc && canDelete) setDocToDelete(activeDoc);
@@ -555,34 +907,142 @@ export default function Workspace() {
           </div>
         </header>
         {notice && <div className="notice-bar"><Sparkles size={14}/>{notice}<button onClick={() => setNotice("")} aria-label="Dismiss notice">×</button></div>}
-        {activeDoc ? <div className="editor-scroll">
-          <div className="document-meta">
-            <div className="doc-type">
-              <FileText size={13}/>
-              <span>DOCUMENT</span>
-              {activeDoc.access === "shared" ? (
-                <span className="shared-tag"><Users size={11}/> SHARED · {(activeDoc.permission ?? "viewer").toUpperCase()}</span>
-              ) : (
-                <span className="owned-tag">OWNED</span>
-              )}
-            </div>
-            <div className="doc-meta-right">
-              <span className="doc-stats">{readingStats.words} {readingStats.words === 1 ? "word" : "words"} · {readingStats.minutes} min read</span>
-              <span className="meta-separator">·</span>
-              <div className="doc-updated">
-                <Clock3 size={12}/>
-                <span>{saveState === "saved" ? "All changes saved" : saveState === "saving" ? "Saving…" : saveState === "error" ? "Save failed" : "Demo mode"}</span>
+
+        <div className="workspace-content-row">
+          {activeDoc ? <div className="editor-scroll">
+            <div className="document-meta">
+              <div className="doc-type">
+                <FileText size={13}/>
+                <span>DOCUMENT</span>
+                {activeDoc.access === "shared" ? (
+                  <span className={`role-tag role-${activeDoc.permission ?? "viewer"}`}>
+                    <Users size={11}/> SHARED · {(activeDoc.permission ?? "viewer").toUpperCase()}
+                  </span>
+                ) : (
+                  <span className="owned-tag">OWNED</span>
+                )}
+              </div>
+              <div className="doc-meta-right">
+                <span className="doc-stats">{readingStats.words} {readingStats.words === 1 ? "word" : "words"} · {readingStats.minutes} min read</span>
+                <span className="meta-separator">·</span>
+                <button
+                  className="icon-button"
+                  style={{ width: "auto", height: "auto", padding: "2px 6px", fontSize: "11px", gap: "4px" }}
+                  title="View version history"
+                  onClick={() => setShowVersionHistory(true)}
+                >
+                  <Clock3 size={12}/>
+                  <span>{saveState === "saved" ? "Saved" : saveState === "saving" ? "Saving…" : saveState === "error" ? "Save failed" : "Demo"}</span>
+                </button>
               </div>
             </div>
-          </div>
-          <input className="document-title" aria-label="Document title" value={activeDoc.title} maxLength={120} readOnly={!canEdit} onChange={(e) => updateDocument({ title: e.target.value || "Untitled document" })}/>
-          <div className="editor-caption">{activeDoc.access === "shared" ? `Shared with you as ${activeDoc.permission}.` : "A calm, focused space for your next good idea."}</div>
-          <Editor key={activeDoc.id} content={activeDoc.content} editable={canEdit} onChange={(content) => updateDocument({ content })}/>
-          <div className="editor-footer">
-            <span><Command size={13}/> {canEdit ? "Tip: select text to format, or use shortcuts like ⌘B, ⌘I, ⌘U" : "You have view-only access to this document"}</span>
-            <span>{activeDoc.access === "shared" ? `${activeDoc.permission} access` : "Private to your workspace"}</span>
-          </div>
-        </div> : <div className="empty-workspace"><div className="empty-illustration"><FileText size={27}/></div><h2>{loadingDocs ? "Opening your documents…" : "Your next good idea starts here."}</h2><p>Create a document, or import a plain-text or Markdown file.</p><button className="primary-button" onClick={() => void createDocument()}><FilePlus2 size={16}/> Create a document</button></div>}
+
+            {/* Role notices */}
+            {activeDoc.access === "shared" && activeDoc.permission === "commenter" && (
+              <div className="role-notice-banner commenter">
+                <MessageSquare size={15}/>
+                <span>You have <strong>Commenter</strong> access. You can leave comments and review suggestions, but text editing is restricted.</span>
+                <button className="secondary-button small-btn" onClick={() => setShowComments(true)}>Open comments</button>
+              </div>
+            )}
+            {activeDoc.access === "shared" && activeDoc.permission === "viewer" && (
+              <div className="role-notice-banner viewer">
+                <Eye size={15}/>
+                <span>You have <strong>Viewer</strong> access to this document. Editing is disabled.</span>
+              </div>
+            )}
+
+            <input className="document-title" aria-label="Document title" value={activeDoc.title} maxLength={120} readOnly={!canEdit} onChange={(e) => updateDocument({ title: e.target.value || "Untitled document" })}/>
+            <div className="editor-caption">{activeDoc.access === "shared" ? `Shared with you as ${activeDoc.permission}.` : "A calm, focused space for your next good idea."}</div>
+            <Editor key={activeDoc.id} content={activeDoc.content} editable={canEdit && editorMode === "edit"} onChange={(content) => updateDocument({ content })}/>
+            <div className="editor-footer">
+              <span>
+                <Command size={13}/> {canEdit
+                  ? editorMode === "edit"
+                    ? "Tip: select text to format, or use shortcuts like ⌘B, ⌘I, ⌘U"
+                    : "Suggestion mode active: additions and revisions flagged for review"
+                  : activeDoc.permission === "commenter"
+                  ? "Commenter mode: you can leave feedback using the comments panel"
+                  : "View-only access: editing is disabled"}
+              </span>
+              <span>{activeDoc.access === "shared" ? `${activeDoc.permission} access` : "Private to your workspace"}</span>
+            </div>
+          </div> : <div className="empty-workspace"><div className="empty-illustration"><FileText size={27}/></div><h2>{loadingDocs ? "Opening your documents…" : "Your next good idea starts here."}</h2><p>Create a document, or import a plain-text or Markdown file.</p><button className="primary-button" onClick={() => void createDocument()}><FilePlus2 size={16}/> Create a document</button></div>}
+
+          {/* Slide-over Comments Panel */}
+          {showComments && activeDoc && (
+            <aside className="comments-panel">
+              <div className="comments-panel-header">
+                <h3><MessageSquare size={16}/> Comments ({activeDocComments.length})</h3>
+                <button className="icon-button" onClick={() => setShowComments(false)} aria-label="Close comments panel"><X size={16}/></button>
+              </div>
+              <div className="comments-filter-tabs">
+                <button className={`filter-tab ${commentFilter === "open" ? "active" : ""}`} onClick={() => setCommentFilter("open")}>Open ({openComments.length})</button>
+                <button className={`filter-tab ${commentFilter === "resolved" ? "active" : ""}`} onClick={() => setCommentFilter("resolved")}>Resolved ({activeDocComments.length - openComments.length})</button>
+                <button className={`filter-tab ${commentFilter === "all" ? "active" : ""}`} onClick={() => setCommentFilter("all")}>All ({activeDocComments.length})</button>
+              </div>
+
+              {canComment && (
+                <form className="comments-new-form" onSubmit={(e) => { e.preventDefault(); addComment(); }}>
+                  <textarea
+                    value={newCommentText}
+                    onChange={(e) => setNewCommentText(e.target.value)}
+                    placeholder="Add a comment or suggestion for teammates…"
+                    onKeyDown={(e) => {
+                      if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+                        e.preventDefault();
+                        addComment();
+                      }
+                    }}
+                  />
+                  <div className="comments-form-footer">
+                    <small>⌘ Enter to send</small>
+                    <button type="submit" className="primary-button small-btn" disabled={!newCommentText.trim()}>Comment</button>
+                  </div>
+                </form>
+              )}
+
+              <div className="comments-list">
+                {filteredComments.length > 0 ? (
+                  filteredComments.map((comment) => (
+                    <div key={comment.id} className={`comment-card ${comment.resolved ? "resolved" : ""}`}>
+                      <div className="comment-card-top">
+                        <div className="comment-avatar" style={{ backgroundColor: getCollaboratorColor(comment.author_name) }}>
+                          {comment.author_name.slice(0, 1).toUpperCase()}
+                        </div>
+                        <span className="comment-author-name">{comment.author_name}</span>
+                        <span className="comment-date">{new Date(comment.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+                      </div>
+                      <div className="comment-body">{comment.text}</div>
+                      <div className="comment-footer-actions">
+                        <button
+                          className="comment-action-btn resolve-btn"
+                          onClick={() => toggleResolveComment(comment.id)}
+                          title={comment.resolved ? "Reopen comment" : "Mark as resolved"}
+                        >
+                          <Check size={12}/> {comment.resolved ? "Reopen" : "Resolve"}
+                        </button>
+                        {(comment.author_id === currentUser.id || canDelete) && (
+                          <button
+                            className="comment-action-btn delete-btn"
+                            onClick={() => deleteComment(comment.id)}
+                            title="Delete comment"
+                          >
+                            <Trash2 size={12}/>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <div className="empty-comments">
+                    {commentFilter === "resolved" ? "No resolved comments." : "No comments yet. Start a discussion with your team!"}
+                  </div>
+                )}
+              </div>
+            </aside>
+          )}
+        </div>
       </section>
 
       {showShare && activeDoc && <div className="modal-backdrop" role="presentation" onMouseDown={(e) => { if (e.target === e.currentTarget) setShowShare(false); }}>
@@ -590,10 +1050,15 @@ export default function Workspace() {
           <div className="modal-heading"><div><h2 id="share-title">Share document</h2><p>Invite someone to work with you.</p></div><button className="icon-button" onClick={() => setShowShare(false)} aria-label="Close dialog"><X size={18}/></button></div>
           <label className="field-label" htmlFor="share-email">Email address</label>
           <div className="invite-field"><Users size={17}/><input id="share-email" type="email" value={shareEmail} onChange={(e) => setShareEmail(e.target.value)} placeholder="teammate@company.com"/></div>
-          <label className="field-label permission-label" htmlFor="share-permission">Permission</label>
-          <select id="share-permission" className="permission-select" value={sharePermission} onChange={(e) => setSharePermission(e.target.value as "viewer" | "editor")}><option value="editor">Editor — can edit document</option><option value="viewer">Viewer — can read document</option></select>
+          <label className="field-label permission-label" htmlFor="share-permission">Permission & Role</label>
+          <select id="share-permission" className="permission-select" value={sharePermission} onChange={(e) => setSharePermission(e.target.value as DocumentRole)}>
+            <option value="editor">Editor — can edit and format document</option>
+            <option value="commenter">Commenter — can view and add comments</option>
+            <option value="viewer">Viewer — can only read document</option>
+            <option value="admin">Admin — can edit and manage collaborator access</option>
+          </select>
           {shareNotice && <p className="share-notice" role="status">{shareNotice}</p>}
-          {authenticated && activeDoc.access === "owned" && <div className="access-list"><div className="access-list-heading"><ShieldCheck size={14}/> PEOPLE WITH ACCESS</div>{sharedPeople.length ? sharedPeople.map((person) => <div className="access-person" key={person.id}><div className="access-avatar">{(person.display_name || person.email).slice(0,1).toUpperCase()}</div><div className="access-person-name"><strong>{person.display_name || person.email.split("@")[0]}</strong><small>{person.email}</small></div><span className="access-role">{person.permission}</span><button className="remove-access" title={`Remove ${person.email}`} aria-label={`Remove access for ${person.email}`} onClick={() => void revokeShare(person.email)}>×</button></div>) : <p className="no-access">Only you have access so far.</p>}</div>}
+          {authenticated && activeDoc.access === "owned" && <div className="access-list"><div className="access-list-heading"><ShieldCheck size={14}/> PEOPLE WITH ACCESS</div>{sharedPeople.length ? sharedPeople.map((person) => <div className="access-person" key={person.id}><div className="access-avatar">{(person.display_name || person.email).slice(0,1).toUpperCase()}</div><div className="access-person-name"><strong>{person.display_name || person.email.split("@")[0]}</strong><small>{person.email}</small></div><span className={`access-role role-${person.permission}`}>{person.permission}</span><button className="remove-access" title={`Remove ${person.email}`} aria-label={`Remove access for ${person.email}`} onClick={() => void revokeShare(person.email)}>×</button></div>) : <p className="no-access">Only you have access so far.</p>}</div>}
           <div className="modal-footer"><button className="secondary-button modal-cancel" onClick={() => setShowShare(false)}>Close</button><button className="share-button" disabled={sharingBusy || !canShare} onClick={() => void shareDocument()}>{sharingBusy && <LoaderCircle size={14} className="spin"/>} Grant access</button></div>
           <p className="modal-footnote">{authenticated ? "The recipient must have an Ajaia account with this email address." : "Demo mode does not persist access grants. Sign in with Supabase to share securely."}</p>
         </section>
@@ -663,6 +1128,95 @@ export default function Workspace() {
               >
                 {deletingAccountBusy && <LoaderCircle size={14} className="spin"/>}
                 {authenticated ? "Permanently delete account" : "Reset workspace"}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {showVersionHistory && activeDoc && (
+        <div
+          className="modal-backdrop"
+          role="presentation"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) setShowVersionHistory(false);
+          }}
+        >
+          <section className="version-modal" role="dialog" aria-modal="true" aria-labelledby="version-title">
+            <div className="version-modal-header">
+              <div>
+                <h2 id="version-title">
+                  <Clock size={17} /> Version history
+                </h2>
+                <p>{activeDoc.title} · Review previous snapshots and restore past states</p>
+              </div>
+              <button className="icon-button" onClick={() => setShowVersionHistory(false)} aria-label="Close dialog">
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="version-modal-content">
+              <div className="version-sidebar">
+                <button
+                  className="secondary-button"
+                  style={{ marginBottom: "8px", justifyContent: "center" }}
+                  onClick={() => createVersionSnapshot()}
+                >
+                  <Plus size={14} /> Snapshot current state
+                </button>
+                {activeDocVersions.map((v) => (
+                  <div
+                    key={v.id}
+                    className={`version-item ${activeVersionPreview?.id === v.id ? "selected" : ""}`}
+                    onClick={() => setSelectedVersionId(v.id)}
+                  >
+                    <span className="version-item-title">{v.title}</span>
+                    <div className="version-item-meta">
+                      <span>{new Date(v.created_at).toLocaleString([], { dateStyle: "short", timeStyle: "short" })}</span>
+                      <span>{v.word_count} words</span>
+                    </div>
+                  </div>
+                ))}
+                {activeDocVersions.length === 0 && (
+                  <p className="empty-search">No saved snapshots yet.</p>
+                )}
+              </div>
+
+              <div className="version-preview">
+                {activeVersionPreview ? (
+                  <>
+                    <div className="version-preview-heading">
+                      <div>
+                        <strong>{activeVersionPreview.title}</strong>
+                        <div style={{ fontSize: "11px", color: "var(--muted)", marginTop: "2px" }}>
+                          Captured by {activeVersionPreview.author_name} on {new Date(activeVersionPreview.created_at).toLocaleString()}
+                        </div>
+                      </div>
+                      {canEdit && (
+                        <button
+                          className="primary-button small-btn"
+                          onClick={() => restoreVersion(activeVersionPreview)}
+                        >
+                          <RotateCcw size={13} /> Restore this version
+                        </button>
+                      )}
+                    </div>
+                    <div className="version-preview-body">
+                      {documentToPlainText(activeVersionPreview.content) || "(Empty document content)"}
+                    </div>
+                  </>
+                ) : (
+                  <p className="empty-search">Select a version snapshot to preview.</p>
+                )}
+              </div>
+            </div>
+
+            <div className="version-modal-footer">
+              <small style={{ color: "var(--muted)", fontSize: "11px" }}>
+                Restoring a past version updates your current draft while keeping all past snapshots intact.
+              </small>
+              <button className="secondary-button modal-cancel" onClick={() => setShowVersionHistory(false)}>
+                Close
               </button>
             </div>
           </section>

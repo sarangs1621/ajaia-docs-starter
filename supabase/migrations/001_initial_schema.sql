@@ -20,13 +20,34 @@ create table if not exists public.documents (
 create table if not exists public.document_shares (
   document_id uuid not null references public.documents(id) on delete cascade,
   shared_with_id uuid not null references public.profiles(id) on delete cascade,
-  permission text not null default 'editor' check (permission in ('viewer', 'editor')),
+  permission text not null default 'editor' check (permission in ('viewer', 'commenter', 'editor', 'admin')),
   created_at timestamptz not null default now(),
   primary key (document_id, shared_with_id)
 );
 
+create table if not exists public.document_comments (
+  id uuid primary key default gen_random_uuid(),
+  document_id uuid not null references public.documents(id) on delete cascade,
+  author_id uuid not null references public.profiles(id) on delete cascade,
+  text text not null check (char_length(trim(text)) between 1 and 2000),
+  resolved boolean not null default false,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.document_versions (
+  id uuid primary key default gen_random_uuid(),
+  document_id uuid not null references public.documents(id) on delete cascade,
+  title text not null,
+  content jsonb not null,
+  author_name text not null default 'Ajaia user',
+  word_count integer not null default 0,
+  created_at timestamptz not null default now()
+);
+
 create index if not exists documents_owner_updated_idx on public.documents(owner_id, updated_at desc);
 create index if not exists document_shares_user_idx on public.document_shares(shared_with_id);
+create index if not exists document_comments_doc_idx on public.document_comments(document_id, created_at asc);
+create index if not exists document_versions_doc_idx on public.document_versions(document_id, created_at desc);
 
 -- SECURITY DEFINER helper functions avoid recursive RLS checks between documents and shares.
 create or replace function public.is_document_owner(p_document_id uuid)
@@ -52,7 +73,27 @@ returns boolean language sql stable security definer set search_path = '' as $$
     select 1 from public.documents d where d.id = p_document_id and d.owner_id = auth.uid()
   ) or exists (
     select 1 from public.document_shares s
-    where s.document_id = p_document_id and s.shared_with_id = auth.uid() and s.permission = 'editor'
+    where s.document_id = p_document_id and s.shared_with_id = auth.uid() and s.permission in ('editor', 'admin')
+  );
+$$;
+
+create or replace function public.can_manage_document(p_document_id uuid)
+returns boolean language sql stable security definer set search_path = '' as $$
+  select exists (
+    select 1 from public.documents d where d.id = p_document_id and d.owner_id = auth.uid()
+  ) or exists (
+    select 1 from public.document_shares s
+    where s.document_id = p_document_id and s.shared_with_id = auth.uid() and s.permission = 'admin'
+  );
+$$;
+
+create or replace function public.can_comment_document(p_document_id uuid)
+returns boolean language sql stable security definer set search_path = '' as $$
+  select exists (
+    select 1 from public.documents d where d.id = p_document_id and d.owner_id = auth.uid()
+  ) or exists (
+    select 1 from public.document_shares s
+    where s.document_id = p_document_id and s.shared_with_id = auth.uid() and s.permission in ('commenter', 'editor', 'admin')
   );
 $$;
 
@@ -145,8 +186,12 @@ declare
   target_profile public.profiles%rowtype;
 begin
   if auth.uid() is null then raise exception 'Sign in to share a document'; end if;
-  if not public.is_document_owner(p_document_id) then raise exception 'Only the document owner can share it'; end if;
-  if p_permission not in ('viewer', 'editor') then raise exception 'Permission must be viewer or editor'; end if;
+  if not (public.is_document_owner(p_document_id) or public.can_manage_document(p_document_id)) then
+    raise exception 'Only the document owner or an admin can manage sharing';
+  end if;
+  if p_permission not in ('viewer', 'commenter', 'editor', 'admin') then
+    raise exception 'Permission must be viewer, commenter, editor, or admin';
+  end if;
   select * into target_profile from public.profiles where lower(email) = lower(trim(p_email));
   if target_profile.id is null then raise exception 'No account exists for this email'; end if;
   if target_profile.id = auth.uid() then raise exception 'You already own this document'; end if;
@@ -161,8 +206,8 @@ create or replace function public.list_document_shares(p_document_id uuid)
 returns table (id uuid, email text, display_name text, permission text, created_at timestamptz)
 language plpgsql security definer set search_path = '' as $$
 begin
-  if auth.uid() is null or not public.is_document_owner(p_document_id) then
-    raise exception 'Only the document owner can view its access list';
+  if auth.uid() is null or not (public.is_document_owner(p_document_id) or public.can_manage_document(p_document_id)) then
+    raise exception 'Only the document owner or admin can view its access list';
   end if;
   return query
     select p.id, p.email, p.display_name, s.permission, s.created_at
@@ -176,8 +221,8 @@ returns boolean language plpgsql security definer set search_path = '' as $$
 declare
   rows_deleted integer;
 begin
-  if auth.uid() is null or not public.is_document_owner(p_document_id) then
-    raise exception 'Only the document owner can revoke access';
+  if auth.uid() is null or not (public.is_document_owner(p_document_id) or public.can_manage_document(p_document_id)) then
+    raise exception 'Only the document owner or admin can revoke access';
   end if;
   delete from public.document_shares s using public.profiles p
   where s.document_id = p_document_id and s.shared_with_id = p.id and lower(p.email) = lower(trim(p_email));
@@ -200,11 +245,37 @@ begin
 end;
 $$;
 
+-- RLS policies for document_comments
+alter table public.document_comments enable row level security;
+drop policy if exists "Collaborators can read document comments" on public.document_comments;
+create policy "Collaborators can read document comments" on public.document_comments for select
+using (public.has_document_access(document_id));
+drop policy if exists "Commenters, editors, and owners can insert comments" on public.document_comments;
+create policy "Commenters, editors, and owners can insert comments" on public.document_comments for insert
+with check (public.can_comment_document(document_id) and author_id = auth.uid());
+drop policy if exists "Authors and owners can update/resolve comments" on public.document_comments;
+create policy "Authors and owners can update/resolve comments" on public.document_comments for update
+using (author_id = auth.uid() or public.is_document_owner(document_id) or public.can_manage_document(document_id));
+drop policy if exists "Authors and owners can delete comments" on public.document_comments;
+create policy "Authors and owners can delete comments" on public.document_comments for delete
+using (author_id = auth.uid() or public.is_document_owner(document_id) or public.can_manage_document(document_id));
+
+-- RLS policies for document_versions
+alter table public.document_versions enable row level security;
+drop policy if exists "Collaborators can read document versions" on public.document_versions;
+create policy "Collaborators can read document versions" on public.document_versions for select
+using (public.has_document_access(document_id));
+drop policy if exists "Editors and owners can insert document versions" on public.document_versions;
+create policy "Editors and owners can insert document versions" on public.document_versions for insert
+with check (public.can_edit_document(document_id));
+
 -- Explicit API grants: RLS filters rows only after SQL privileges permit the operation.
 grant usage on schema public to authenticated;
 grant select, update, delete on table public.profiles to authenticated;
 grant select, insert, update, delete on table public.documents to authenticated;
 grant select, insert, update, delete on table public.document_shares to authenticated;
+grant select, insert, update, delete on table public.document_comments to authenticated;
+grant select, insert on table public.document_versions to authenticated;
 
 drop policy if exists "Users can delete their profile" on public.profiles;
 create policy "Users can delete their profile" on public.profiles for delete using (auth.uid() = id);
@@ -213,6 +284,8 @@ create policy "Users can delete their profile" on public.profiles for delete usi
 revoke all on function public.is_document_owner(uuid) from public, anon;
 revoke all on function public.has_document_access(uuid) from public, anon;
 revoke all on function public.can_edit_document(uuid) from public, anon;
+revoke all on function public.can_manage_document(uuid) from public, anon;
+revoke all on function public.can_comment_document(uuid) from public, anon;
 revoke all on function public.share_document_by_email(uuid, text, text) from public, anon;
 revoke all on function public.list_document_shares(uuid) from public, anon;
 revoke all on function public.revoke_document_share_by_email(uuid, text) from public, anon;
@@ -224,6 +297,8 @@ revoke all on function public.prevent_document_owner_change() from public, anon,
 grant execute on function public.is_document_owner(uuid) to authenticated;
 grant execute on function public.has_document_access(uuid) to authenticated;
 grant execute on function public.can_edit_document(uuid) to authenticated;
+grant execute on function public.can_manage_document(uuid) to authenticated;
+grant execute on function public.can_comment_document(uuid) to authenticated;
 grant execute on function public.share_document_by_email(uuid, text, text) to authenticated;
 grant execute on function public.list_document_shares(uuid) to authenticated;
 grant execute on function public.revoke_document_share_by_email(uuid, text) to authenticated;

@@ -2,6 +2,14 @@
 
 This file details the deliverables, verification results, and reviewer instructions for Ajaia Docs.
 
+## Submission links
+
+- **Google Drive submission folder:** https://drive.google.com/drive/folders/1YipnwDgPdc1CCUheeI0pkXR72KRA8cAr?usp=sharing
+- **Live application:** https://ajaia-docs-starter-lime.vercel.app/
+- **Source code:** https://github.com/sarangs1621/ajaia-docs-starter
+- **Walkthrough video:** https://www.loom.com/share/9c45d3678c5a4477a787235052d5831f
+
+- [x] Google Drive submission folder: https://drive.google.com/drive/folders/1YipnwDgPdc1CCUheeI0pkXR72KRA8cAr?usp=sharing
 - [x] Source code repository: Included in submission directory
 - [x] Live product: https://ajaia-docs-starter-lime.vercel.app/
 - [x] README with local setup instructions: `README.md`

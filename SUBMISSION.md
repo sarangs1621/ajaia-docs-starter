@@ -3,13 +3,13 @@
 This file details the deliverables, verification results, and reviewer instructions for Ajaia Docs.
 
 - [x] Source code repository: Included in submission directory
-- [ ] Live product: [Add your deployed Vercel URL here]
+- [x] Live product: https://ajaia-docs-starter-lime.vercel.app/
 - [x] README with local setup instructions: `README.md`
 - [x] Architecture note: `ARCHITECTURE.md`
 - [x] AI workflow note: `AI_WORKFLOW.md`
 - [x] Automated unit tests: `tests/document-content.test.ts` (4 tests passing)
 - [x] Test command results recorded below
-- [ ] Walkthrough video: `WALKTHROUGH_URL.txt` [Add your 3-5 min video link]
+- [x] Walkthrough video: `WALKTHROUGH_URL.txt` 
 - [x] Reviewer instructions & test account details provided below
 
 ---

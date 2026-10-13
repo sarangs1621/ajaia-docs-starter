@@ -9,7 +9,7 @@ This file details the deliverables, verification results, and reviewer instructi
 - [x] AI workflow note: `AI_WORKFLOW.md`
 - [x] Automated unit tests: `tests/document-content.test.ts` (5 tests passing)
 - [x] Test command results recorded below
-- [x] Walkthrough video: `WALKTHROUGH_URL.txt`
+- [x] Walkthrough video: [Watch the Ajaia Docs walkthrough](https://www.loom.com/share/9c45d3678c5a4477a787235052d5831f) (also recorded in `WALKTHROUGH_URL.txt`)
 - [x] Reviewer instructions & test account details provided below
 
 ---
